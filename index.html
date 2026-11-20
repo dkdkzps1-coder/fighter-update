@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src wss://tictactoe-relay-agzs.onrender.com ws://localhost:8080; style-src 'self' 'unsafe-inline'; font-src 'self'">
+<title>몰래 격투</title>
+<style>
+  @font-face { font-family: "Press Start 2P"; src: url("PressStart2P.woff2") format("woff2"); }
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none;
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif; color: #e6e8ee; }
+  /* 상단 바: 마우스를 올렸을 때만 보임 */
+  #bar { -webkit-app-region: drag; position: absolute; top: 0; left: 0; right: 0; z-index: 5; height: 26px; display: flex; align-items: center; gap: 10px; padding: 0 8px;
+    background: rgba(15,17,21,.8); border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity .15s; }
+  body:hover #bar { opacity: 1; }
+  #bar .title { font-weight: 700; color: #ffd84e; }
+  #bar .sp { flex: 1; }
+  #bar button { -webkit-app-region: no-drag; background: transparent; border: 0; color: #aab; font-size: 12px; cursor: pointer; padding: 3px 6px; border-radius: 4px; }
+  #bar button:hover { background: rgba(255,255,255,.12); color: #fff; }
+  #netinfo { color: #8a90a0; }
+  .stage { position: absolute; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; outline: none; }
+  /* 크기 조절 손잡이 (오른쪽 아래) */
+  #grip { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; z-index: 6; cursor: nwse-resize; opacity: 0; transition: opacity .15s;
+    background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,.55) 50%, rgba(255,255,255,.55) 60%, transparent 60%, transparent 70%, rgba(255,255,255,.55) 70%, rgba(255,255,255,.55) 80%, transparent 80%); }
+  body:hover #grip { opacity: 1; }
+  #lobby { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(10,12,16,.88); border-radius: 8px; }
+  #lobbyInner { zoom: var(--z, 1); display: flex; flex-direction: column; align-items: center; }
+  .box { width: 360px; text-align: center; }
+  .box h1 { font-family: "Press Start 2P", monospace; font-size: 20px; color: #ffd84e; margin: 0 0 22px; letter-spacing: 2px; }
+  .row { display: flex; gap: 8px; margin: 10px 0; }
+  button.big { flex: 1; padding: 11px; border-radius: 8px; border: 1px solid #2a2f3a; background: #1d2230; color: #e6e8ee; font-size: 14px; cursor: pointer; font-family: inherit; }
+  button.big:hover { background: #283044; }
+  button.main { background: #e8473c; border-color: #e8473c; color: #fff; }
+  button.main:hover { background: #ff5a4e; }
+  input { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #2a2f3a; background: #0d0f13; color: #fff; font-size: 16px; text-align: center; letter-spacing: 4px; text-transform: uppercase; font-family: inherit; }
+  #status { width: 360px; text-align: center; margin-top: 14px; font-size: 12.5px; color: #8a90a0; min-height: 36px; line-height: 1.5; }
+  .code { font-family: "Press Start 2P", monospace; font-size: 26px; letter-spacing: 6px; color: #fff; margin: 8px 0 14px; }
+  .keys { font-size: 11.5px; color: #6d7488; margin-top: 12px; line-height: 1.7; }
+  .krow { display: grid; grid-template-columns: 70px 1fr 1fr; gap: 6px; align-items: center; margin: 4px 0; font-size: 13px; text-align: left; }
+  .kbtn { padding: 5px; border-radius: 6px; border: 1px solid #2a2f3a; background: #0d0f13; color: #e6e8ee; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .kbtn:hover { border-color: #4a5266; }
+  .kbtn.cap { border-color: #ffd84e; color: #ffd84e; }
+  #keyMsg { font-size: 12px; color: #ffd84e; min-height: 18px; margin-top: 4px; }
+  .hidden { display: none !important; }
+  #verLabel { position: absolute; left: 10px; bottom: 6px; font-size: 11px; color: #5d6476; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="title">몰래 격투</span>
+  <span>방 <b id="roomCode">-</b></span>
+  <span id="netinfo"></span>
+  <span class="sp"></span>
+  <button id="btnLeave" title="로비로">나가기</button>
+  <button id="btnHide" title="숨기기 (Alt+Q로 다시 보기)">숨기기</button>
+  <button id="btnClose" title="종료">✕</button>
+</div>
+<div class="stage">
+  <canvas id="c" width="800" height="400" tabindex="0"></canvas>
+  <div id="lobby"><div id="lobbyInner">
+    <div class="box" id="menuBox">
+      <h1>몰래 격투</h1>
+      <div class="row"><button class="big main" id="btnCreate">방 만들기</button></div>
+      <div class="row"><input id="codeInput" maxlength="6" placeholder="방 코드"><button class="big" id="btnJoin" style="flex:0 0 90px">참가</button></div>
+      <div class="row"><button class="big" id="btnPractice">혼자 연습</button><button class="big" id="btnKeys">키 설정</button></div>
+      <div class="keys" id="keysHelp">이동 A D / ← → · 점프 W / ↑ · 가드 S / ↓<br>약 F·J · 강 G·K · 필살기 H·L (게이지 50 이상)<br>Esc 일시정지 · ` 또는 Alt+Q 숨기기 · [ ] 투명도<br>창 위에 마우스를 올리면 상단 바(이동)와 오른쪽 아래 크기 조절 손잡이가 보여요</div>
+    </div>
+    <div class="box hidden" id="keyBox">
+      <h1 style="margin-bottom:12px">KEYS</h1>
+      <div id="keyTable"></div>
+      <div id="keyMsg"></div>
+      <div class="row"><button class="big" id="btnKeysReset">기본값으로</button><button class="big main" id="btnKeysDone">완료</button></div>
+    </div>
+    <div class="box hidden" id="waitBox">
+      <h1>WAITING</h1>
+      <div>친구에게 이 코드를 알려주세요</div>
+      <div class="code" id="waitCode"></div>
+      <div class="row"><button class="big" id="btnCopy">복사</button><button class="big" id="btnCancel">취소</button></div>
+    </div>
+    <div id="status"></div>
+  </div><div id="verLabel"></div></div>
+</div>
+<div id="grip" title="끌어서 크기 조절"></div>
+<script src="game.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
