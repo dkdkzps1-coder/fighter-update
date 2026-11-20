@@ -20,7 +20,12 @@ const Game = (() => {
     rp:      { rank: 2, startup: 6,  active: 3,  recovery: 12, dmg: 8,  hitstun: 18, blockstun: 10, chip: 0, push: 7,  meter: 8,  lunge: 5,   box: { x: 16, y: -76, w: 62, h: 18 } },
     lk:      { rank: 3, startup: 7,  active: 4,  recovery: 14, dmg: 9,  hitstun: 19, blockstun: 11, chip: 0, push: 7,  meter: 9,  lunge: 4,   box: { x: 14, y: -60, w: 60, h: 22 } },
     rk:      { rank: 4, startup: 10, active: 4,  recovery: 20, dmg: 13, hitstun: 26, blockstun: 13, chip: 1, push: 10, meter: 12, lunge: 7.5, box: { x: 18, y: -64, w: 66, h: 26 }, launch: true },
-    special: { rank: 5, startup: 20, active: 1,  recovery: 28, dmg: 22, hitstun: 34, blockstun: 18, chip: 4, push: 13, meter: 0,  cost: 50, proj: true, launch: true, wall: true },
+    // 앉아서 쓰는 기술 (lvl: 'low' = 앉아서만 막힘. 공중 공격은 자동으로 'high' = 서서만 막힘)
+    clp:     { rank: 1, crouch: true, startup: 4, active: 3, recovery: 8,  dmg: 4,  hitstun: 14, blockstun: 8,  chip: 0, push: 4, meter: 5,  lunge: 2, box: { x: 18, y: -54, w: 48, h: 16 } },
+    crp:     { rank: 2, crouch: true, startup: 5, active: 5, recovery: 16, dmg: 9,  hitstun: 20, blockstun: 10, chip: 0, push: 3, meter: 9,  lunge: 2, box: { x: 4, y: -116, w: 42, h: 72 }, antiAir: true },
+    clk:     { rank: 3, crouch: true, startup: 5, active: 3, recovery: 11, dmg: 6,  hitstun: 16, blockstun: 9,  chip: 0, push: 5, meter: 7,  lunge: 2, box: { x: 14, y: -22, w: 60, h: 22 }, lvl: 'low' },
+    crk:     { rank: 4, crouch: true, startup: 9, active: 5, recovery: 22, dmg: 10, hitstun: 0,  blockstun: 14, chip: 1, push: 4, meter: 11, lunge: 3, box: { x: 8, y: -20, w: 80, h: 20 }, lvl: 'low', sweep: true },
+    special: { rank: 5, startup: 20, active: 1,  recovery: 28, dmg: 22, hitstun: 34, blockstun: 18, chip: 4, push: 13, meter: 0,  cost: 50, proj: true, launch: true, wall: true, lvl: 'mid' },
     dive:    { rank: 4, startup: 5,  active: 60, recovery: 0,  dmg: 11, hitstun: 22, blockstun: 12, chip: 1, push: 6,  meter: 10, box: { x: 8, y: -34, w: 50, h: 38 }, dive: true },
     // 잡기 (왼손+오른손 동시): 가드를 뚫음. 붙잡고 들어 올려 앞으로 던짐
     throw:   { rank: 0, dmg: 12, hitstun: 30, blockstun: 0, chip: 0, push: 7, meter: 10, launch: true, wall: true, throwPush: 6.5 },
@@ -92,22 +97,22 @@ const Game = (() => {
   }
 
   // 눌린 버튼 중 조건에 맞는 가장 센 기술 고르기 (ground: 땅 위, minRank: 이보다 높은 것만)
-  function pickAtk(b, ground, minRank) {
+  function pickAtk(b, ground, minRank, down) {
     for (const n of PRIORITY) {
       if (!b[n]) continue;
       if (n === 'sp') { if (!ground) continue; }
-      const name = n === 'sp' ? 'special' : (!ground && n === 'rk' ? 'dive' : n);
+      const name = n === 'sp' ? 'special' : !ground ? (n === 'rk' ? 'dive' : n) : (down ? 'c' + n : n);
       if (ATK[name].rank > minRank) return { n, name };
     }
     return null;
   }
-  function tryAtk(f, b, ground, minRank) {
-    if (ground && minRank === 0 && b.lp && b.rp) {          // 왼손+오른손 → 잡기 시도
+  function tryAtk(f, b, ground, minRank, down) {
+    if (ground && !down && minRank === 0 && b.lp && b.rp) {          // 왼손+오른손 → 잡기 시도
       b.lp = b.rp = 0;
       f.state = 'grab'; f.t = 0; f.atk = null; f.atkName = 'grab'; f.vx = f.facing * 2.5;
       return true;
     }
-    const p = pickAtk(b, ground, minRank);
+    const p = pickAtk(b, ground, minRank, down);
     if (!p) return false;
     if (!startAtk(f, p.name)) { b[p.n] = 0; return false; }
     b[p.n] = 0;
@@ -139,9 +144,15 @@ const Game = (() => {
       else { f.tapDir = dir; f.tapAt = frameCount; }
     }
     f.prevDir = dir;
+    // 스파 방식 막기: 상대 반대쪽을 누르고 있으면 막음 (앉아 있으면 앉아 막기)
+    f.holdBack = ground && dir === -f.facing;
+    f.down = ground && !!inp.g;
 
     if (f.state === 'ko' || f.state === 'win') {
       if (ground) f.vx *= 0.85;
+    } else if (f.state === 'down') {                       // 다리 후리기에 넘어짐 → 누워 있다가 일어남 (무적)
+      if (ground) f.vx *= 0.8;
+      if (f.t >= f.stun && ground) { f.state = 'idle'; f.t = 0; f.juggle = 0; f.wb = false; }
     } else if (f.state === 'hitstun' || f.state === 'blockstun') {
       if (ground) f.vx *= 0.82;
       if (f.t >= f.stun && ground) { f.state = 'idle'; f.t = 0; f.wb = false; f.juggle = 0; }
@@ -151,7 +162,7 @@ const Game = (() => {
     } else if (f.state === 'grab') {
       f.vx *= 0.8;
       if (f.t === 3) {
-        const can = ['idle', 'walk', 'guard', 'blockstun', 'land', 'dash', 'grab', 'attack'].includes(o.state) && onGround(o);
+        const can = ['idle', 'walk', 'guard', 'crouch', 'blockstun', 'land', 'dash', 'grab', 'attack'].includes(o.state) && onGround(o);
         if (can && Math.abs(o.x - f.x) < GRAB_RANGE && game.phase === 'fight') {
           f.state = 'throw'; f.t = 0; f.vx = 0;
           o.state = 'thrown'; o.t = 0; o.atk = null; o.vx = o.vy = 0; o.facing = -f.facing; o.trail = [];
@@ -185,7 +196,7 @@ const Game = (() => {
       if (canAct && f.hit && f.t >= a.startup) {
         if (ground && f.atkName === 'rk' && (inp.u || b.ju)) {       // 띄우기(오른발) 맞히고 점프로 따라가기
           b.ju = 0; doJump(f, f.facing, false); f.vy = -15.5; f.vx = f.facing * 3.4; canceled = true;
-        } else canceled = tryAtk(f, b, ground, Math.max(a.rank, ground ? 0 : f.airRank));
+        } else canceled = tryAtk(f, b, ground, Math.max(a.rank, ground ? 0 : f.airRank), f.down);
       }
       if (canceled) {
         // 새 기술 시작됨
@@ -211,14 +222,16 @@ const Game = (() => {
     } else if (f.state === 'dash') {
       f.vx = f.facing * Math.max(3, 11 - f.t * 0.5);
       if (f.t % 4 === 0) dust(f.x - f.facing * 10, FLOOR, -f.facing, 1, 1.2);
-      if (canAct && tryAtk(f, b, true, 0)) { /* 대시 공격 */ }
+      if (canAct && tryAtk(f, b, true, 0, false)) { /* 대시 공격 */ }
       else if (canAct && inp.u) doJump(f, f.facing, true);
       else if (f.t >= 15) { f.state = 'idle'; f.t = 0; }
     } else if (f.state === 'bdash') {
       // 공중에 살짝 뜬 채로 뒤로 빠짐 — 땅에 닿으면 끝
     } else if (canAct) {
       if (ground) {
-        if (tryAtk(f, b, true, 0)) { /* 공격 시작 */ }
+        if (tryAtk(f, b, true, 0, f.down)) { /* 공격 시작 (앉아 있으면 앉아 기술) */ }
+        else if (inp.u) doJump(f, dir, false);
+        else if (inp.g) { f.state = 'crouch'; f.vx = 0; f.guardPose = f.holdBack && threatened(f, o); }
         else if (dashReq && dashReq === f.facing) {
           f.state = 'dash'; f.t = 0; f.vx = f.facing * 11;
           dust(f.x, FLOOR, -f.facing, 6, 2.2); ring(f.x - f.facing * 14, FLOOR - 30, 'rgba(255,255,255,.55)', 14);
@@ -226,8 +239,7 @@ const Game = (() => {
           f.state = 'bdash'; f.t = 0; f.vx = -f.facing * 8; f.vy = -6.5; f.y -= 1;
           dust(f.x, FLOOR, f.facing, 5, 1.8);
         }
-        else if (inp.g) { f.state = 'guard'; f.vx = 0; }
-        else if (inp.u) doJump(f, dir, false);
+        else if (f.holdBack && threatened(f, o)) { f.state = 'guard'; f.vx = 0; }   // 상대가 공격 중이면 그 자리에서 막는 자세
         else {
           f.vx = dir * (dir === f.facing ? 4.2 : 3.2);
           if (dir) { f.state = 'walk'; f.walkT += dir * f.facing; } else f.state = 'idle';
@@ -237,10 +249,10 @@ const Game = (() => {
         if (f.state === 'jump') {
           if (o.x > f.x + 4) f.facing = 1; else if (o.x < f.x - 4) f.facing = -1;
           if (dir) f.vx = Math.max(-5.6, Math.min(5.6, f.vx + dir * 0.4));
-          tryAtk(f, b, false, f.airRank);     // 한 번 점프에 손·발 각각 한 번씩 (순서대로)
+          tryAtk(f, b, false, f.airRank, false);     // 한 번 점프에 손·발 각각 한 번씩 (순서대로)
         }
       }
-    } else if (ground) { f.vx = 0; if (f.state === 'walk' || f.state === 'guard' || f.state === 'dash') f.state = 'idle'; }
+    } else if (ground) { f.vx = 0; if (f.state === 'walk' || f.state === 'guard' || f.state === 'crouch' || f.state === 'dash') f.state = 'idle'; }
 
     if (!ground || f.vy < 0) f.vy += GRAV;
     f.x += f.vx; f.y += f.vy;
@@ -276,7 +288,14 @@ const Game = (() => {
       }
     }
     f.x = Math.max(LEFTB, Math.min(RIGHTB, f.x));
-    if (onGround(f) && (f.state === 'idle' || f.state === 'walk' || f.state === 'guard')) f.facing = o.x >= f.x ? 1 : -1;
+    if (onGround(f) && (f.state === 'idle' || f.state === 'walk' || f.state === 'guard' || f.state === 'crouch')) f.facing = o.x >= f.x ? 1 : -1;
+  }
+
+  // 상대가 공격 중이거나 장풍이 날아오는 중인지 (뒤로 누르고 있을 때 막는 자세를 취할지 결정)
+  function threatened(f, o) {
+    if ((o.state === 'attack' || o.state === 'grab') && Math.abs(o.x - f.x) < 190) return true;
+    for (const p of projs) if (p.owner === o.id && Math.abs(p.x - f.x) < 240 && Math.sign(f.x - p.x) === Math.sign(p.vx)) return true;
+    return false;
   }
 
   // 빠르게 움직일 때 잔상 남기기
@@ -296,14 +315,20 @@ const Game = (() => {
   }
 
   function hurtbox(f) {
-    const h = f.state === 'guard' ? 74 : f.state === 'dash' ? 84 : 94;
+    const low = f.state === 'crouch' || (f.state === 'blockstun' && f.blockLow) || (f.state === 'attack' && f.atk && f.atk.crouch);
+    const h = f.state === 'down' ? 24 : low ? 64 : f.state === 'dash' ? 84 : 94;
     return { x: f.x - 18, y: f.y - h, w: 36, h };
   }
   const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
   function applyHit(att, def, a, dirX, hx, hy) {
     const facingAtt = (att.x - def.x) * def.facing > 0 || Math.abs(att.x - def.x) < 2;
-    const blocked = (def.state === 'guard' || def.state === 'blockstun') && facingAtt;
+    // 상단(공중 공격) = 서서만, 하단 = 앉아서만, 중단 = 둘 다 막힘. 잡기는 못 막음
+    const lvl = a.lvl || (!onGround(att) || a.dive ? 'high' : 'mid');
+    const canGuard = !a.throwPush && onGround(def) && def.holdBack && ['idle', 'walk', 'crouch', 'guard', 'blockstun'].includes(def.state);
+    const lvlOK = lvl === 'low' ? def.down : lvl === 'high' ? !def.down : true;
+    const blocked = canGuard && facingAtt && lvlOK;
+    if (blocked) def.blockLow = def.down;
     const big = a.dmg > 10, sup = !!a.proj;
     if (blocked) {
       def.hp -= a.chip;
@@ -321,6 +346,10 @@ const Game = (() => {
       def.state = 'hitstun'; def.stun = a.hitstun; def.t = 0; def.atk = null;
       att.combo++; att.comboT = 60;
       if (a.dive && wasAir) { def.vy = 9; def.vx = dirX * 4; }                       // 공중에서 내려찍기 → 바닥으로 꽂힘
+      else if (a.sweep && !wasAir) {                                                  // 다리 후리기 → 넘어짐
+        def.state = 'down'; def.stun = 46; def.vy = -5; def.y = FLOOR - 1; def.vx = dirX * 2.5;
+        dust(def.x, FLOOR, dirX, 6, 2);
+      } else if (a.antiAir && wasAir) { def.vy = -9; def.vx = dirX * 4; }             // 어퍼컷 대공 → 높이 떠서 날아감
       else if (a.launch && !wasAir) {
         def.vy = sup ? -11 : -12.5; def.y = FLOOR - 1; def.vx = dirX * (a.throwPush || (sup ? a.push : 3.2));
         if (a.wall) def.wb = true;
@@ -364,7 +393,7 @@ const Game = (() => {
       // 공중 기술은 판정을 위아래로 넉넉하게 (공중 콤보가 너무 빡빡하지 않게)
       const bw = bx.w + (air ? 8 : 0), bh = bx.h + (air ? 24 : 0);
       const hb = { x: f.facing === 1 ? f.x + bx.x : f.x - bx.x - bw, y: f.y + bx.y + (air ? 6 : 0), w: bw, h: bh };
-      if (o.state !== 'ko' && o.state !== 'thrown' && overlap(hb, hurtbox(o))) {
+      if (o.state !== 'ko' && o.state !== 'thrown' && o.state !== 'down' && overlap(hb, hurtbox(o))) {
         f.hit = true;
         applyHit(f, o, a, f.facing, f.facing === 1 ? hb.x + hb.w - 6 : hb.x + 6, hb.y + hb.h / 2);
         if (a.dive && game.phase !== 'ko' && onGround(o)) {   // 땅에 있는 상대에게 내려찍기가 맞으면 뒤로 튕겨 오름
@@ -381,7 +410,7 @@ const Game = (() => {
       if (p.t % 3 === 0) sparks.push({ k: 'bit', x: p.x - Math.sign(p.vx) * 20, y: p.y + (rnd(p.t) - 0.5) * 30, vx: -Math.sign(p.vx) * 1.5, vy: (rnd(p.t + 1) - 0.5) * 2,
         color: p.owner ? '#8cc4ff' : '#ff9a7a', size: 3 + rnd(p.t + 2) * 3, life: 16, max: 16 });
       const o = F[1 - p.owner];
-      if (game.phase === 'fight' && o.state !== 'ko' && o.state !== 'thrown' && overlap({ x: p.x - 28, y: p.y - 28, w: 56, h: 56 }, hurtbox(o))) {
+      if (game.phase === 'fight' && o.state !== 'ko' && o.state !== 'thrown' && o.state !== 'down' && overlap({ x: p.x - 28, y: p.y - 28, w: 56, h: 56 }, hurtbox(o))) {
         p.life = 0;
         applyHit(F[p.owner], o, ATK.special, Math.sign(p.vx), p.x, p.y);
       }
@@ -517,7 +546,7 @@ const Game = (() => {
     const air = f.y < FLOOR;
     const lvx = f.vx * f.facing;            // 바라보는 방향 기준 속도
 
-    if (st === 'ko' && !air && f.t > 10) {
+    if ((st === 'ko' && !air && f.t > 10) || (st === 'down' && !air && f.t < f.stun - 8)) {   // 누워 있는 자세
       rect(-44, -14, 60, 14, gi); rect(-44, -14, 60, 4, PANTS_D);
       rect(16, -16, 18, 16, skin); rect(16, -18, 18, 6, hair);
       rect(-10, -16, 6, 16, belt);
@@ -531,13 +560,14 @@ const Game = (() => {
     else if (st === 'bdash') tilt = -0.22;
     else if (st === 'attack' && a) {
       if (wind) tilt = a.dive ? -0.25 : -0.12 * (f.t / a.startup);
-      else if (active) tilt = nm === 'rk' ? 0.06 : nm === 'lk' ? -0.08 : a.dive ? -0.12 : nm === 'rp' ? 0.2 : 0.12;
+      else if (active) tilt = { rk: 0.06, lk: -0.08, rp: 0.2, crp: -0.06, clk: -0.05, crk: -0.14 }[nm] ?? (a.dive ? -0.12 : 0.12);
       else tilt = 0.05;
     } else if (st === 'grab') tilt = 0.15;
     else if (st === 'throw') tilt = f.t < THROW_LIFT ? 0.05 : f.t < THROW_TOSS ? -0.18 : 0.32;
     else if (st === 'thrown') tilt = -Math.min(1, Math.max(0, f.t - THROW_LIFT) / (THROW_TOSS - THROW_LIFT)) * 1.7 - 0.2;
     else if (st === 'hitstun') tilt = air ? -0.55 : -0.3 * (1 - f.t / Math.max(1, f.stun));
     else if (st === 'blockstun') tilt = -0.1;
+    else if (st === 'down') tilt = air ? -0.8 : 0;
     if (air && st !== 'attack') { const s = Math.min(Math.abs(f.vy) * 0.012, 0.16); sy = 1 + s; sx = 1 - s * 0.7; }
     if (f.landT > 0 && !air) { const s = f.landT / 8 * 0.2; sy = 1 - s; sx = 1 + s * 0.8; }
     if (st === 'attack' && a && !a.dive && wind && !air) { sy = 0.94; sx = 1.04; }       // 힘 모으기
@@ -550,17 +580,26 @@ const Game = (() => {
     if (st === 'idle') crouch = Math.abs(Math.sin(frameCount / 8)) * 4;            // 무릎 반동 스텝
     if (st === 'walk') bob = -Math.abs(Math.sin(f.walkT / 4)) * 3;
     if (st === 'hitstun' || st === 'ko') lean = -7;
-    if (st === 'guard' || st === 'blockstun') crouch = 18;
+    const CROUCH = 28;
+    if (st === 'guard') crouch = 3;
+    if (st === 'blockstun') crouch = f.blockLow ? CROUCH : 4;
+    if (st === 'crouch' || (st === 'down' && !air)) crouch = CROUCH;
     if (st === 'dash') crouch = 8;
     if (st === 'land') crouch = 16;
     if (st === 'attack' && wind && !air && a && !a.dive) crouch = nm === 'special' ? 10 : 6;
+    if (st === 'attack' && a && a.crouch) crouch = CROUCH;
     if (st === 'win') bob = -Math.abs(Math.sin(frameCount / 6)) * 6;
 
     const top = -44 + crouch;
     const kick = st === 'attack' && (nm === 'rk' || nm === 'lk') && active;
     const dive = st === 'attack' && a && a.dive;
     const ay = air ? 18 : 0;
-    if (dive && !wind) {
+    const lowKick = st === 'attack' && a && a.crouch && active && (nm === 'clk' || nm === 'crk');
+    if (lowKick) {
+      rect(-18, -18, 13, 18, gi); rect(-20, -6, 15, 6, skinD);                   // 접은 뒷다리
+      if (nm === 'clk') { rect(-2, -18, 62, 11, gi); rect(58, -20, 12, 13, skinD); }   // 왼발: 낮게 찌르는 발차기
+      else { rect(-6, -14, 82, 10, gi); rect(74, -16, 13, 12, skinD); }               // 오른발: 바닥 쓸기
+    } else if (dive && !wind) {
       rect(-14, top, 11, 22, gi); rect(-16, top + 20, 13, 6, skinD);              // 접은 뒷다리
       ctx.save(); ctx.translate(0, -40); ctx.rotate(0.8);
       rect(-2, -6, 58, 12, gi); rect(54, -8, 13, 15, skinD);                       // 대각선으로 뻗은 발
@@ -601,7 +640,9 @@ const Game = (() => {
     rect(-16, -93 + flap * 0.2, 6, 3, ghost || '#ffffff'); rect(-21 + Math.min(0, flap) * 0.3, -90 + flap * 0.5, 6, 3, ghost || '#ffffff');
     rect(6, -88, 3, 3, ghost || '#1b1b1f');
 
-    if (st === 'attack' && nm === 'lp' && active) {                 // 왼손 잽 (앞손)
+    if (st === 'attack' && nm === 'crp' && active) {                // 앉아 오른손: 어퍼컷 (대공)
+      rect(2, -134, 11, 60, skin); rect(0, -142, 15, 12, skinD); rect(-14, -70, 16, 9, skin);
+    } else if (st === 'attack' && (nm === 'lp' || nm === 'clp') && active) {   // 왼손 잽 (앞손) / 앉아 잽
       rect(4, -78, 56, 8, skin); rect(56, -81, 11, 13, skinD); rect(-6, -72, 16, 9, skin); rect(8, -76, 9, 9, skinD);
     } else if (st === 'attack' && nm === 'rp' && active) {          // 오른손 스트레이트 (뒷손, 길게)
       rect(-6, -74, 76, 9, skin); rect(68, -77, 12, 15, skinD); rect(-22, -70, 16, 9, skin);
@@ -630,7 +671,7 @@ const Game = (() => {
     } else if (wind) {
       if (nm === 'rp') { rect(-24, -72, 18, 10, skin); rect(4, -78, 14, 10, skin); }
       else { rect(-22, -72, 16, 10, skin); rect(2, -66, 14, 10, skin); }
-    } else if (st === 'guard' || st === 'blockstun') {
+    } else if (st === 'guard' || st === 'blockstun' || (st === 'crouch' && f.guardPose)) {
       rect(6, -84, 10, 28, skin); rect(12, -80, 10, 22, skinD);
     } else if (st === 'hitstun') {
       rect(-20, -84, 10, 22, skin); rect(10, -86, 10, 20, skin);

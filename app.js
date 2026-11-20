@@ -13,7 +13,7 @@ const cv = $('c'), ctx = cv.getContext('2d');
 // ---------------- 키 입력 / 키 설정 ----------------
 // 동작마다 키 2개까지. 설정은 이 PC에 저장됨
 const ACTIONS = [
-  ['l', '왼쪽'], ['r', '오른쪽'], ['u', '점프'], ['g', '가드'],
+  ['l', '왼쪽'], ['r', '오른쪽'], ['u', '점프'], ['g', '앉기'],
   ['lp', '왼손'], ['rp', '오른손'], ['lk', '왼발'], ['rk', '오른발'], ['sp', '필살기'],
 ];
 const DEFAULT_BINDS = {
@@ -66,7 +66,7 @@ let capturing = null; // { action, slot }
 function renderKeyHelp() {
   const L = a => binds[a].filter(Boolean).map(keyLabel).join('/') || '없음';
   const el = $('keysHelp');
-  if (el) el.innerHTML = `이동 ${L('l')} ${L('r')} · 점프 ${L('u')} · 가드 ${L('g')} · 방향키 두 번 대시<br>왼손 ${L('lp')} · 오른손 ${L('rp')} · 왼발 ${L('lk')} · 오른발 ${L('rk')} · 필살기 ${L('sp')}<br>왼손+오른손 잡기 · 맞히면 손→발 순서로 콤보 · 오른발 띄우고 점프로 공중콤보<br>Esc 일시정지 · \` 또는 Alt+Q 숨기기 · [ ] 투명도<br>창 위에 마우스를 올리면 상단 바(이동)와 오른쪽 아래 크기 조절 손잡이가 보여요`;
+  if (el) el.innerHTML = `이동 ${L('l')} ${L('r')} · 점프 ${L('u')} · 앉기 ${L('g')} · 방향키 두 번 대시<br>왼손 ${L('lp')} · 오른손 ${L('rp')} · 왼발 ${L('lk')} · 오른발 ${L('rk')} · 필살기 ${L('sp')}<br>뒤로 누르면 막기 (하단은 앉아서, 점프 공격은 서서) · 앉아 공격 = 하단기<br>왼손+오른손 잡기 · 맞히면 손→발 순서로 콤보 · 오른발 띄우고 점프로 공중콤보<br>Esc 일시정지 · \` 또는 Alt+Q 숨기기 · [ ] 투명도<br>창 위에 마우스를 올리면 상단 바(이동)와 오른쪽 아래 크기 조절 손잡이가 보여요`;
 }
 function renderKeyTable() {
   const t = $('keyTable');

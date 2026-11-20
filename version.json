@@ -1,9 +1,9 @@
 {
-  "version": 9,
+  "version": 10,
   "minShell": 7,
   "files": {
-    "index.html": "fbb9f68458bd053b147ee1d007d2124ecfd3c74d7bd34d97dc3710baa2d5d617",
-    "app.js": "435a6f0516ea1ba08c2e5149aa5dfd68355a470f93d6137314c088f65e89f4fd",
-    "game.js": "80c289dbafc1978e86c7b72948ef57a3f39e5de6ef6f6f0b086ada8f776b6b70"
+    "index.html": "e1a04ddb98f53b3f7591c1760b3f42332272ca6c5c71c56ded1c2c244b77ee54",
+    "app.js": "f6f3f4bb84b7163be038645cdccf67ac9c0ed3ce681c83fb8520be4e6f5cd964",
+    "game.js": "5a9331ad54734ad06341ea1e2e9709c45f3e32a03b2b4d82604e20954d472359"
   }
 }
