@@ -14,18 +14,27 @@ const cv = $('c'), ctx = cv.getContext('2d');
 // 동작마다 키 2개까지. 설정은 이 PC에 저장됨
 const ACTIONS = [
   ['l', '왼쪽'], ['r', '오른쪽'], ['u', '점프'], ['g', '가드'],
-  ['lp', '약공격'], ['hp', '강공격'], ['sp', '필살기'],
+  ['lp', '왼손'], ['rp', '오른손'], ['lk', '왼발'], ['rk', '오른발'], ['sp', '필살기'],
 ];
 const DEFAULT_BINDS = {
   l: ['KeyA', 'ArrowLeft'], r: ['KeyD', 'ArrowRight'], u: ['KeyW', 'ArrowUp'], g: ['KeyS', 'ArrowDown'],
-  lp: ['KeyF', 'KeyJ'], hp: ['KeyG', 'KeyK'], sp: ['KeyH', 'KeyL'],
+  lp: ['KeyF', 'KeyJ'], rp: ['KeyG', 'KeyK'], lk: ['KeyV', 'KeyM'], rk: ['KeyB', 'Comma'], sp: ['KeyH', 'KeyL'],
 };
+const ATTACK_KEYS = new Set(Game.BUTTONS);
 // 게임 기능에 이미 쓰는 키는 지정 불가
 const RESERVED = new Set(['Escape', 'Backquote', 'Enter', 'NumpadEnter', 'BracketLeft', 'BracketRight', 'Tab', 'MetaLeft', 'MetaRight']);
 let binds = JSON.parse(JSON.stringify(DEFAULT_BINDS));
 try {
   const saved = JSON.parse(localStorage.getItem('binds') || 'null');
-  if (saved && typeof saved === 'object') for (const [a] of ACTIONS) if (Array.isArray(saved[a])) binds[a] = [saved[a][0] || '', saved[a][1] || ''];
+  if (saved && typeof saved === 'object') {
+    // 예전 버전의 '강공격(hp)' 키는 오른발로 옮김
+    if (Array.isArray(saved.hp) && !saved.rk) saved.rk = saved.hp;
+    for (const [a] of ACTIONS) if (Array.isArray(saved[a])) binds[a] = [saved[a][0] || '', saved[a][1] || ''];
+    // 새로 생긴 동작의 기본 키가 이미 다른 동작에 쓰이고 있으면 비워 둠
+    const used = new Set();
+    for (const [a] of ACTIONS) if (Array.isArray(saved[a])) for (const c of binds[a]) if (c) used.add(c);
+    for (const [a] of ACTIONS) if (!Array.isArray(saved[a])) binds[a] = binds[a].map(c => (used.has(c) ? '' : c));
+  }
 } catch {}
 let KEYMAP = {};
 function rebuildKeymap() {
@@ -52,7 +61,7 @@ let capturing = null; // { action, slot }
 function renderKeyHelp() {
   const L = a => binds[a].filter(Boolean).map(keyLabel).join('/') || '없음';
   const el = $('keysHelp');
-  if (el) el.innerHTML = `이동 ${L('l')} ${L('r')} · 점프 ${L('u')} · 가드 ${L('g')}<br>약 ${L('lp')} · 강 ${L('hp')} · 필살기 ${L('sp')} (게이지 50 이상)<br>Esc 일시정지 · \` 또는 Alt+Q 숨기기 · [ ] 투명도<br>창 위에 마우스를 올리면 상단 바(이동)와 오른쪽 아래 크기 조절 손잡이가 보여요`;
+  if (el) el.innerHTML = `이동 ${L('l')} ${L('r')} · 점프 ${L('u')} · 가드 ${L('g')} · 방향키 두 번 대시<br>왼손 ${L('lp')} · 오른손 ${L('rp')} · 왼발 ${L('lk')} · 오른발 ${L('rk')} · 필살기 ${L('sp')}<br>왼손+오른손 잡기 · 맞히면 손→발 순서로 콤보 · 오른발 띄우고 점프로 공중콤보<br>Esc 일시정지 · \` 또는 Alt+Q 숨기기 · [ ] 투명도<br>창 위에 마우스를 올리면 상단 바(이동)와 오른쪽 아래 크기 조절 손잡이가 보여요`;
 }
 function renderKeyTable() {
   const t = $('keyTable');
@@ -104,7 +113,7 @@ addEventListener('keydown', e => {
   const k = KEYMAP[e.code];
   if (!k) return;
   e.preventDefault();
-  if (!held[k] && (k === 'lp' || k === 'hp' || k === 'sp')) pressed |= Game.BIT[k];
+  if (!held[k] && ATTACK_KEYS.has(k)) pressed |= Game.BIT[k];
   held[k] = true;
 });
 addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) held[k] = false; });
