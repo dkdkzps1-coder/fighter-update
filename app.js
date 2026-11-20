@@ -27,8 +27,13 @@ let binds = JSON.parse(JSON.stringify(DEFAULT_BINDS));
 try {
   const saved = JSON.parse(localStorage.getItem('binds') || 'null');
   if (saved && typeof saved === 'object') {
-    // 예전 버전의 '강공격(hp)' 키는 오른발로 옮김
-    if (Array.isArray(saved.hp) && !saved.rk) saved.rk = saved.hp;
+    const empty = k => !Array.isArray(saved[k]) || !saved[k].some(Boolean);
+    if (!saved._v) {
+      // v7 이하: 예전 '강공격(hp)' 키(기본 G/K)는 오른손으로 옮김
+      if (Array.isArray(saved.hp) && !saved.rp && !saved.rk) saved.rp = saved.hp;
+      // v8에서 잘못 옮겨진 경우(오른손 비어 있고 오른발에 예전 강공격 키) 복구
+      else if (empty('rp') && !empty('rk')) { saved.rp = saved.rk; delete saved.rk; }
+    }
     for (const [a] of ACTIONS) if (Array.isArray(saved[a])) binds[a] = [saved[a][0] || '', saved[a][1] || ''];
     // 새로 생긴 동작의 기본 키가 이미 다른 동작에 쓰이고 있으면 비워 둠
     const used = new Set();
@@ -40,7 +45,7 @@ let KEYMAP = {};
 function rebuildKeymap() {
   KEYMAP = {};
   for (const [a] of ACTIONS) for (const c of binds[a]) if (c) KEYMAP[c] = a;
-  try { localStorage.setItem('binds', JSON.stringify(binds)); } catch {}
+  try { localStorage.setItem('binds', JSON.stringify(Object.assign({ _v: 9 }, binds))); } catch {}
   renderKeyHelp();
 }
 
