@@ -514,6 +514,88 @@ const Game = (() => {
   function rect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+
+  // ---------------- 스프라이트 (그리기 전용: step()과 게임 결과에는 영향 없음) ----------------
+  const SPR = { ready: false, loaded: 0, failed: 0, total: 0, img: {}, cfg: null };
+  (function loadSprites() {
+    if (typeof window === 'undefined' || typeof Image === 'undefined' || !window.SPRITE_CONFIG) return;
+    const c = SPR.cfg = window.SPRITE_CONFIG;
+    for (const name of ['kaze', 'kage']) for (const anim in c.counts) for (let i = 0; i < c.counts[anim]; i++) {
+      const im = new Image(); SPR.total++; SPR.img[name + '/' + anim + '/' + i] = im;
+      im.onload = () => { SPR.loaded++; SPR.ready = SPR.loaded === SPR.total; };
+      im.onerror = () => { SPR.failed++; };
+      im.src = c.images[name + '/' + anim + '/' + i];
+    }
+  })();
+  const LEGS = 0.5, KICK_LEGS = 0.45;
+  function sprAttackFrame(t, a, impact, n) {
+    if (t < a.startup) return Math.min(impact - 1, Math.floor(t / Math.max(1, a.startup) * impact));
+    if (t < a.startup + a.active) return impact;
+    const k = (t - a.startup - a.active) / Math.max(1, a.recovery);
+    return Math.min(n - 1, impact + 1 + Math.floor(k * (n - impact - 1)));
+  }
+  function sprPose(f) {
+    const c = SPR.cfg, moves = c.chars[f.id ? 'kage' : 'kaze'].moves, st = f.state, air = f.y < FLOOR, idleF = Math.floor(frameCount / 7) % c.counts.idle;
+    const P = (anim, frame, o) => Object.assign({ anim, frame, dx: 0, rot: 0, legs: 0, waist: 46, upperRot: 0, up: 0 }, o);
+    if (st === 'attack' && f.atk) {
+      const a = f.atk, nm = f.atkName, base = { lp: 'lp', rp: 'rp', lk: 'lk', rk: 'rk', clp: 'lp', crp: 'rp', clk: 'lk', crk: 'rk', dive: 'rk', special: 'rp' }[nm], m = moves[base], n = c.counts[m.anim];
+      const frame = a.dive ? (f.t < a.startup ? sprAttackFrame(f.t, a, m.impact, n) : m.impact) : sprAttackFrame(f.t, a, m.impact, n);
+      let k = 1; if (f.t < a.startup) k = f.t / Math.max(1, a.startup); else if (f.t >= a.startup + a.active) k = Math.max(0, 1 - (f.t - a.startup - a.active) / Math.max(1, a.recovery));
+      const o = { dx: m.bodyDx * k, rot: a.dive && f.t >= a.startup ? 0.55 : 0 };
+      if (nm === 'clp') Object.assign(o, { legs: LEGS });
+      if (nm === 'crp') Object.assign(o, { legs: LEGS, upperRot: -0.95 * Math.min(1, f.t / Math.max(1, a.startup)), dx: Math.min(6, m.bodyDx * k) });
+      if (nm === 'clk' || nm === 'crk') Object.assign(o, { legs: KICK_LEGS, waist: 38 });
+      return P(m.anim, frame, o);
+    }
+    if (st === 'walk') return P('walk', ((Math.floor(f.walkT / 4) % 8) + 8) % 8);
+    if (st === 'jump') return P('jump', f.vy < -8 ? 1 : f.vy < 2 ? 2 : 6);
+    if (st === 'bdash') return P('jump', 2, { rot: -0.2 });
+    if (st === 'dash') return P('walk', 4, { rot: 0.22 });
+    if (st === 'crouch') return f.guardPose ? P('hit', 1, { legs: LEGS, rot: -0.04 }) : P('idle', idleF, { legs: LEGS });
+    if (st === 'guard') return P('hit', 1, { rot: -0.06, dx: -2 });
+    if (st === 'blockstun') return P('hit', 1, { rot: -0.1, dx: -3, legs: f.blockLow ? LEGS : 0 });
+    if (st === 'land') return P('idle', 0, { legs: 0.72 });
+    if (st === 'hitstun') { const k = Math.min(1, f.t / Math.max(1, f.stun)); return P('hit', Math.min(5, 2 + Math.floor(k * 4)), { rot: air ? -0.45 : -0.24 * (1 - k), dx: -8 * (1 - k) }); }
+    if (st === 'thrown') { const k = Math.min(1, Math.max(0, f.t - THROW_LIFT) / (THROW_TOSS - THROW_LIFT)); return P('hit', 2, { rot: -k * 1.7 - 0.2, up: k * 42 }); }
+    if (st === 'grab') return P('right_punch', Math.min(moves.rp.impact, f.t + 1));
+    if (st === 'throw') { const lifting = f.t >= THROW_LIFT && f.t < THROW_TOSS; return P('right_punch', f.t < THROW_TOSS ? moves.rp.impact : Math.min(7, moves.rp.impact + 2), { legs: 0.86, upperRot: lifting ? -1.15 : f.t >= THROW_TOSS ? 0.28 : 0 }); }
+    if (st === 'down') return !air && f.t >= f.stun - 8 ? P('idle', 0, { legs: LEGS }) : P('hit', 3, { rot: air ? -0.8 : -1.5, lying: !air });
+    if (st === 'ko') return air ? P('hit', 3, { rot: -f.t * 0.28 }) : P('hit', 3, { rot: -1.5, lying: true });
+    return P('idle', idleF);
+  }
+  const isLying = f => SPR.ready && (f.state === 'ko' || f.state === 'down') && f.y >= FLOOR;
+  function drawSprite(f, ghost) {
+    if (!SPR.ready) return false;
+    const c = SPR.cfg, name = f.id ? 'kage' : 'kaze', p = sprPose(f), im = SPR.img[name + '/' + p.anim + '/' + p.frame];
+    if (!im || !im.complete || !im.naturalWidth) return false;
+    const S = c.scale, A = c.chars[name].anchorX, FW = c.frame[0], B = c.baseline + 1;
+    let drawX = f.x, drawY = f.y - p.up;
+    if (p.lying) {                                        // 누운 몸을 바닥에 맞추고 화면 안에 유지 (그림 위치만 보정)
+      const L = c.chars[name].lying, e1 = f.x + f.facing * L.minX, e2 = f.x + f.facing * L.maxX, lo = Math.min(e1, e2), hi = Math.max(e1, e2);
+      drawX += lo < 4 ? 4 - lo : hi > W - 4 ? W - 4 - hi : 0; drawY = f.y - L.lift;
+    }
+    ctx.translate(Math.round(drawX), Math.round(drawY)); ctx.scale(f.facing, 1); ctx.rotate(p.rot); ctx.translate(p.dx, 0);
+    const smooth = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false;
+    if (!ghost && f.flash > 0 && f.flash % 2) ctx.filter = 'brightness(2.4)';
+    if (p.legs) {                                         // 다리만 접고 상체는 찌그러뜨리지 않음
+      const legH = (B - p.waist) * S * p.legs;
+      ctx.drawImage(im, 0, p.waist, FW, B - p.waist, -A * S, -legH, FW * S, legH);
+      ctx.save(); ctx.translate(0, -legH); ctx.rotate(p.upperRot);
+      ctx.drawImage(im, 0, 0, FW, p.waist + 1, -A * S, -p.waist * S, FW * S, (p.waist + 1) * S);
+      ctx.restore();
+    } else ctx.drawImage(im, -A * S, -B * S, FW * S, c.frame[1] * S);
+    ctx.filter = 'none'; ctx.imageSmoothingEnabled = smooth;
+    return true;
+  }
+  function drawSpriteFace(f) {                            // 필살기 컷인: 각 캐릭터의 실제 얼굴과 상체
+    if (!SPR.ready) return false;
+    const name = f.id ? 'kage' : 'kaze', im = SPR.img[name + '/idle/0'], A = SPR.cfg.chars[name].anchorX, Z = 4.3, sx = A - 22, sy = 10, w = 44, h = 35;
+    const smooth = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(im, sx, sy, w, h, -w * Z / 2, -h * Z / 2, w * Z, h * Z);
+    ctx.imageSmoothingEnabled = smooth;
+    return true;
+  }
+
   function drawFighter(f, isMe, ghost) {
     ctx.save();
     if (!ghost) {
@@ -535,6 +617,7 @@ const Game = (() => {
       }
     }
 
+    if (drawSprite(f, ghost)) { ctx.restore(); return; }
     ctx.translate(Math.round(f.x), Math.round(f.y));
     ctx.scale(f.facing, 1);
 
@@ -793,7 +876,7 @@ const Game = (() => {
     const fx = left ? -170 + ease * 380 : W + 170 - ease * 380;
     ctx.save(); ctx.translate(fx + (left ? t * 0.6 : -t * 0.6), bandY + bandH / 2); ctx.scale(left ? 1 : -1, 1);
     ctx.shadowColor = 'rgba(' + col + ',.9)'; ctx.shadowBlur = 24;
-    drawFace(f, s);
+    if (!drawSpriteFace(f)) drawFace(f, s);
     ctx.restore();
     // 글자
     ctx.font = '30px ' + PIX; ctx.textAlign = left ? 'left' : 'right';
@@ -866,7 +949,7 @@ const Game = (() => {
     if (game.shake > 0) ctx.translate((Math.random() - .5) * game.shake, (Math.random() - .5) * game.shake);
     if (game.zoom > 0) { const z = 1 + game.zoom; ctx.translate(game.zx, game.zy); ctx.scale(z, z); ctx.translate(-game.zx, -game.zy); }
     F.forEach(drawTrail);
-    const order = [...F].sort((a, b) => (a.state === 'attack') - (b.state === 'attack'));
+    const rank = f => (isLying(f) ? -1 : f.state === 'attack' ? 1 : 0), order = [...F].sort((a, b) => rank(a) - rank(b));
     order.forEach(f => drawFighter(f, f.id === opts.me));
     projs.forEach(drawProj);
     sparks.forEach(drawSpark);
@@ -876,7 +959,7 @@ const Game = (() => {
     drawMsg(opts.me);
   }
 
-  return { W, H, BIT, BUTTONS, step, render, newMatch, checksum, state: game, _F: F };
+  return { W, H, BIT, BUTTONS, step, render, newMatch, checksum, state: game, _F: F, _spr: SPR };
 })();
 
 if (typeof module !== 'undefined') module.exports = Game;

@@ -1,9 +1,10 @@
 {
-  "version": 10,
+  "version": 11,
   "minShell": 7,
   "files": {
-    "index.html": "e1a04ddb98f53b3f7591c1760b3f42332272ca6c5c71c56ded1c2c244b77ee54",
+    "index.html": "847e8a98d32d690912f34b489ff5452ea5e0710585e3dc0110d967fbaec7e022",
     "app.js": "f6f3f4bb84b7163be038645cdccf67ac9c0ed3ce681c83fb8520be4e6f5cd964",
-    "game.js": "5a9331ad54734ad06341ea1e2e9709c45f3e32a03b2b4d82604e20954d472359"
+    "game.js": "c0acb1019692b4c5d9597123f0d0fb0efcdaf6deffd763b9f3421dfff6fffef6",
+    "sprite-config.js": "aeb2fc5197e538961c871cfd0c203b6aeba96fcc82b25b689c42faf8069aedaa"
   }
 }
